@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Two-List Comparison Tool</title>
+<style>
+:root{font-family:Segoe UI,Arial,sans-serif;color:#1f2937;background:#f3f6f9}
+body{margin:0;padding:24px}.wrap{max-width:1500px;margin:auto}
+h1{margin:0 0 6px;color:#1f4e78}.sub{margin:0 0 18px;color:#52606d}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:white;border:1px solid #ccd6e0;border-radius:10px;padding:14px;box-shadow:0 2px 8px #0000000d}
+textarea{width:100%;height:300px;box-sizing:border-box;resize:vertical;font-family:Consolas,monospace;font-size:13px;padding:10px;border:1px solid #9fb3c8;border-radius:6px}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0}
+button{background:#1f4e78;color:white;border:0;border-radius:6px;padding:10px 16px;font-weight:600;cursor:pointer}
+button.secondary{background:#5b6770}label{display:flex;gap:6px;align-items:center}
+input[type=number]{width:70px;padding:6px}
+.summary{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px;margin:14px 0}
+.kpi{background:white;border-left:5px solid #5b9bd5;border-radius:6px;padding:10px 12px;border-top:1px solid #d8e1e8;border-right:1px solid #d8e1e8;border-bottom:1px solid #d8e1e8}
+.kpi b{display:block;font-size:22px;color:#1f4e78}
+.tablewrap{overflow:auto;background:white;border:1px solid #ccd6e0;border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}th{position:sticky;top:0;background:#1f4e78;color:white;padding:9px;border:1px solid #d4dce3;text-align:left}
+td{padding:7px;border:1px solid #d4dce3;vertical-align:top}.match{background:#d9ead3}.warn{background:#f4cccc;color:#9c0006;font-weight:600}.possible{background:#fff2cc}
+.small{font-size:12px;color:#607080}.hidden{display:none}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.summary{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>Two-List Alignment & Mismatch Tool</h1>
+<p class="sub">Runs entirely in your browser. Your list data is not uploaded anywhere.</p>
+<div class="grid">
+<div class="card"><h3>List 1 — Current / New</h3><textarea id="l1" placeholder="Paste one item per line"></textarea></div>
+<div class="card"><h3>List 2 — Previous / Reference</h3><textarea id="l2" placeholder="Paste one item per line"></textarea></div>
+</div>
+<div class="controls">
+<button onclick="compare()">Compare Lists</button>
+<button class="secondary" onclick="exportCSV()">Export CSV</button>
+<button class="secondary" onclick="clearAll()">Clear</button>
+<label><input id="case" type="checkbox"> Case-sensitive</label>
+<label><input id="trim" type="checkbox" checked> Ignore surrounding spaces</label>
+<label><input id="fuzzy" type="checkbox" checked> Suggest possible renamed items</label>
+<label>Similarity ≥ <input id="threshold" type="number" min="50" max="100" value="72">%</label>
+</div>
+<div class="summary">
+<div class="kpi">List 1 items<b id="s1">0</b></div>
+<div class="kpi">List 2 items<b id="s2">0</b></div>
+<div class="kpi">Exact matches<b id="sm">0</b></div>
+<div class="kpi">Only List 1<b id="so1">0</b></div>
+<div class="kpi">Only List 2<b id="so2">0</b></div>
+</div>
+<div class="tablewrap"><table id="tbl">
+<thead><tr><th>Aligned Item</th><th>List 1</th><th>List 2</th><th>Status</th><th>Warning / Explanation</th><th>Similarity</th><th>List 1 Qty</th><th>List 2 Qty</th></tr></thead>
+<tbody></tbody></table></div>
+<p class="small">Exact matches are aligned regardless of original row order. Unmatched items may be paired as “possible renamed item” when their text is sufficiently similar.</p>
+</div>
+<script>
+let lastRows=[];
+function lines(id){return document.getElementById(id).value.split(/\r?\n/).map(x=>document.getElementById('trim').checked?x.trim():x).filter(Boolean)}
+function key(s){return document.getElementById('case').checked?s:s.toLowerCase()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function similarity(a,b){
+ a=key(a);b=key(b); if(a===b)return 1;
+ const m=a.length,n=b.length, dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+ for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
+ return (2*dp[m][n])/(m+n||1);
+}
+function compare(){
+ const a=lines('l1'),b=lines('l2'), A=new Map(),B=new Map();
+ a.forEach(x=>{let k=key(x);if(!A.has(k))A.set(k,{text:x,count:0});A.get(k).count++});
+ b.forEach(x=>{let k=key(x);if(!B.has(k))B.set(k,{text:x,count:0});B.get(k).count++});
+ let rows=[], unmatchedA=[],unmatchedB=[];
+ for(const [k,v] of A){if(B.has(k)){let w=B.get(k);rows.push([v.text,v.text,w.text,'MATCH',(v.count>1||w.count>1)?'Matched, but duplicate exists':'OK',100,v.count,w.count])}else unmatchedA.push(v)}
+ for(const [k,v] of B)if(!A.has(k))unmatchedB.push(v);
+ if(document.getElementById('fuzzy').checked){
+   const threshold=+document.getElementById('threshold').value/100, used=new Set();
+   unmatchedA.forEach(x=>{
+     let best=-1,score=0;
+     unmatchedB.forEach((y,i)=>{if(!used.has(i)){let s=similarity(x.text,y.text);if(s>score){score=s;best=i}}});
+     if(best>=0&&score>=threshold){let y=unmatchedB[best];used.add(best);rows.push([x.text,x.text,y.text,'POSSIBLE NAME CHANGE','Review: similar text but not an exact match',Math.round(score*100),x.count,y.count])}
+     else rows.push([x.text,x.text,'','ONLY IN LIST 1','Missing from List 2',0,x.count,0]);
+   });
+   unmatchedB.forEach((y,i)=>{if(!used.has(i))rows.push([y.text,'',y.text,'ONLY IN LIST 2','Missing from List 1',0,0,y.count])});
+ } else {
+   unmatchedA.forEach(x=>rows.push([x.text,x.text,'','ONLY IN LIST 1','Missing from List 2',0,x.count,0]));
+   unmatchedB.forEach(y=>rows.push([y.text,'',y.text,'ONLY IN LIST 2','Missing from List 1',0,0,y.count]));
+ }
+ rows.sort((x,y)=>x[3].localeCompare(y[3])||x[0].localeCompare(y[0]));
+ lastRows=rows;
+ const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
+ rows.forEach(r=>{let cls=r[3]==='MATCH'?'match':r[3]==='POSSIBLE NAME CHANGE'?'possible':'warn';tb.insertAdjacentHTML('beforeend',`<tr class="${cls}">${r.map((v,i)=>`<td>${esc(i===5?v+'%':v)}</td>`).join('')}</tr>`)});
+ document.getElementById('s1').textContent=a.length;document.getElementById('s2').textContent=b.length;
+ document.getElementById('sm').textContent=rows.filter(r=>r[3]==='MATCH').length;
+ document.getElementById('so1').textContent=rows.filter(r=>r[3]==='ONLY IN LIST 1').length;
+ document.getElementById('so2').textContent=rows.filter(r=>r[3]==='ONLY IN LIST 2').length;
+}
+function exportCSV(){
+ if(!lastRows.length)compare();
+ const headers=['Aligned Item','List 1','List 2','Status','Warning / Explanation','Similarity %','List 1 Qty','List 2 Qty'];
+ const csv=[headers,...lastRows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+ const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);a.download='list_comparison.csv';a.click();URL.revokeObjectURL(a.href);
+}
+function clearAll(){document.getElementById('l1').value='';document.getElementById('l2').value='';lastRows=[];document.querySelector('#tbl tbody').innerHTML='';['s1','s2','sm','so1','so2'].forEach(x=>document.getElementById(x).textContent='0')}
+</script></body></html>
